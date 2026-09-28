@@ -114,6 +114,82 @@ scikit-learn) — por isso essas operações (`@`, `.T`, `np.linalg.inv`) aparec
 | Pizza | `plt.pie(valores, labels=categorias)` | Mostrar proporção (%) de um total entre poucas categorias |
 | Subplots | `plt.subplots(2, 2)` | Vários gráficos lado a lado na mesma figura |
 
+### 1.6 Como carregar dados de um CSV corretamente
+
+O que mais muda de exercício pra exercício não é o algoritmo — é isto: qual arquivo carregar,
+quais colunas usar como features/target, e como tratar o conteúdo da coluna. Olhe o cabeçalho do
+CSV e responda 3 perguntas antes de escrever o código:
+
+1. Qual coluna é o **y** (o que eu quero prever)?
+2. Quais colunas são o **X** (features)?
+3. As colunas têm só números limpos, números entre aspas, ou texto/valores faltando?
+
+**Perguntas 1 e 2 — identificando y e X:** o enunciado sempre nomeia o alvo ("prever/estimar o
+preço", "saber se sobreviveu" → isso é o `y`, sempre uma única coluna). As features são as
+variáveis citadas como "a partir de / com base em / usando" — use só as que o enunciado pede,
+mesmo que o CSV tenha muitas outras colunas disponíveis. Confira o nome/posição real no arquivo
+antes de codificar (nunca adivinhe):
+```python
+with open("arquivo.csv") as f:
+    print(f.readline())   # mostra o cabeçalho com os nomes das colunas, na ordem
+```
+Nunca use como feature uma coluna de identificação (`id`) nem a própria coluna do `y`.
+
+**Exemplo real do curso** (`kc_house_data.csv`: `id`(0), `date`(1), `price`(2), `bedrooms`(3),
+`bathrooms`(4), `sqft_living`(5), ...):
+
+| Exercício | y (target) | X (features) |
+|---|---|---|
+| Regressão Simples (Aula 3) | `price` (col. 2) | `sqft_living` (col. 5) |
+| Regressão Múltipla (Aula 4) | `price` (col. 2) | `bedrooms`(3), `bathrooms`(4), `sqft_living`(5) |
+| Regressão Logística (Aula 5) | `survived` | `pclass`, `sex`, `age`, `sibsp`, `parch`, `fare` |
+
+Repare: o `y` é o mesmo em Simples e Múltipla — o que muda é só quantas/quais features entram em `usecols`.
+
+**Pergunta 3 — qual forma de carregamento usar:**
+
+| Situação do CSV | Como carregar |
+|---|---|
+| Só números, sem aspas, sem valor faltando (`tumores.csv`) | `np.loadtxt` |
+| Números entre aspas `"123"` (`kc_house_data.csv`) | `np.genfromtxt` + limpeza de aspas |
+| Texto/categoria e/ou valor faltando (`titanic.csv`) | `csv.DictReader` + tratamento manual |
+
+**Opção 1 — `np.loadtxt` (mais simples):**
+```python
+import numpy as np
+# skiprows pula o cabeçalho (2 se houver linha de comentário extra); usecols escolhe as colunas
+dados = np.loadtxt("arquivo.csv", delimiter=',', skiprows=1, usecols=(5, 2))
+x, y = dados[:, 0], dados[:, 1]
+```
+
+**Opção 2 — `np.genfromtxt` (números entre aspas):**
+```python
+import numpy as np
+dados = np.genfromtxt("arquivo.csv", delimiter=',', skip_header=1, usecols=(2, 3, 4, 5), dtype=str)
+dados = np.char.strip(dados, '""').astype(float)   # remove as aspas e converte para número
+y, X_features = dados[:, 0], dados[:, 1:]
+```
+
+**Opção 3 — `csv.DictReader` (texto/categoria, valores faltando):**
+```python
+import csv
+import numpy as np
+
+def load_data(filename):
+    X, y = [], []
+    with open(filename, "r", encoding='utf-8') as f:
+        for row in csv.DictReader(f):        # cada linha vira um dict, acessível por nome
+            if row["survived"] == "":
+                continue
+            y.append(int(row["survived"]))
+            sex = 1 if row["sex"] == "female" else 0           # texto -> número
+            age = float(row["age"]) if row["age"] != "" else -1  # marcador de faltante
+            X.append([float(row["pclass"]), sex, age, float(row["fare"])])
+    return np.array(X), np.array(y).reshape(-1, 1)
+```
+Depois da Opção 3, ainda falta substituir o marcador de faltante pela média (`fill_missing_age`)
+e normalizar as colunas (`normalize`, Seção 4.5) antes de treinar.
+
 ---
 
 ## 2. Aula 3 — Regressão Linear Simples
@@ -239,6 +315,24 @@ d) x=15 está **fora** do intervalo observado (2 a 10) — é extrapolação. N�
    (retornos marginais decrescentes).
 e) Resposta aberta esperada: não — fatores como sazonalidade, concorrência, preço, qualidade do
    produto etc. também afetam o faturamento; um modelo mais realista usaria Regressão Múltipla.
+
+**Código:**
+```python
+import numpy as np
+
+x = np.array([2, 4, 6, 8, 10])
+y = np.array([35, 45, 75, 85, 110])
+
+x_mean, y_mean = np.mean(x), np.mean(y)
+m = np.sum((x - x_mean) * (y - y_mean)) / np.sum((x - x_mean) ** 2)
+b = y_mean - m * x_mean
+
+y_pred = m * x + b
+r2 = 1 - np.sum((y - y_pred) ** 2) / np.sum((y - y_mean) ** 2)
+
+print(f"m = {m}, b = {b}, R² = {r2:.4f}")
+print("Previsão para investimento de 15 mil:", m * 15 + b)
+```
 </details>
 
 #### Exercício 2 — Experiência x Salário
@@ -273,6 +367,24 @@ c) $0.85\times25+1.75 = \mathbf{23{,}0}$ mil reais. Não é muito realista: 25 e
 d) Na prática, salários costumam **desacelerar** (não crescer linearmente para sempre); um
    modelo linear tende a superestimar salários de profissionais muito experientes.
 e) Não considera cargo, empresa, formação, região, negociação individual etc. — pediria Regressão Múltipla.
+
+**Código:**
+```python
+import numpy as np
+
+x = np.array([1, 3, 5, 7, 9])
+y = np.array([3, 4, 6, 7, 10])
+
+x_mean, y_mean = np.mean(x), np.mean(y)
+m = np.sum((x - x_mean) * (y - y_mean)) / np.sum((x - x_mean) ** 2)
+b = y_mean - m * x_mean
+
+y_pred = m * x + b
+r2 = 1 - np.sum((y - y_pred) ** 2) / np.sum((y - y_mean) ** 2)
+
+print(f"m = {m}, b = {b}, R² = {r2:.4f}")
+print("Previsão para 25 anos de experiência:", m * 25 + b)
+```
 </details>
 
 #### Exercício 3 — Treinamentos x Produtividade
@@ -315,6 +427,25 @@ f) Em x=5 → 61.5; em x=15 → 80.5 → diferença de **19 pontos** de produtiv
    compensa (resposta depende do contexto de custo/benefício da empresa).
 g) Motivação, tipo/qualidade do treinamento, experiência prévia, ferramentas disponíveis, carga
    de trabalho, etc.
+
+**Código:**
+```python
+import numpy as np
+
+x = np.array([0, 5, 10, 15, 20])
+y = np.array([50, 65, 70, 80, 90])
+
+x_mean, y_mean = np.mean(x), np.mean(y)
+m = np.sum((x - x_mean) * (y - y_mean)) / np.sum((x - x_mean) ** 2)
+b = y_mean - m * x_mean
+
+y_pred = m * x + b
+r2 = 1 - np.sum((y - y_pred) ** 2) / np.sum((y - y_mean) ** 2)
+
+print(f"m = {m}, b = {b}, R² = {r2:.4f}")
+print("Previsão para 20 treinamentos:", m * 20 + b)
+print("Diferença entre 15 e 5 treinamentos:", (m * 15 + b) - (m * 5 + b))
+```
 </details>
 
 ---
@@ -345,14 +476,12 @@ onde `X` é a matriz de features **com uma coluna de 1's à esquerda** (para rep
 
 ### 3.3 Por que não dá sempre para resolver $X\beta = y$ diretamente?
 
-Porque normalmente há **mais linhas (exemplos) do que colunas (parâmetros)** — o sistema é
-"sobredeterminado" e não tem solução exata. A equação normal usa mínimos quadrados para achar o
-$\beta$ que **minimiza o erro total**, mesmo sem solução exata. Quando o número de exemplos é
-**igual** ao número de parâmetros (como no exemplo abaixo, com 3 pontos e 3 parâmetros:
-$\beta_0,\beta_1,\beta_2$), a equação normal encontra uma solução **exata** que passa por todos
-os pontos (resíduo zero) — isso é interessante para praticar a conta na mão, mas **não é
-representativo de um problema real**, onde se quer generalizar para pontos novos usando bem mais
-dados do que parâmetros.
+Normalmente há **mais exemplos do que parâmetros** — o sistema é "sobredeterminado", sem solução
+exata — e a equação normal usa mínimos quadrados para achar o $\beta$ que **minimiza o erro
+total**. Quando o número de exemplos é **igual** ao de parâmetros (como no exemplo abaixo: 3
+pontos, 3 parâmetros), há uma solução **exata** que passa por todos os pontos (resíduo zero) —
+bom para praticar a conta na mão, mas **não representa um problema real**, onde se usa bem mais
+dados do que parâmetros para generalizar.
 
 ### 3.4 Exemplo resolvido passo a passo (completando o exemplo das slides)
 
@@ -385,10 +514,9 @@ $$\beta_0 = 0 \qquad \beta_1 = 0 \qquad \beta_2 = 100$$
 quartos=2 → 200 ✓; quartos=3 → 300 ✓; quartos=4 → 400 ✓ — a reta/plano passa exatamente pelos 3
 pontos, como esperado (3 exemplos, 3 parâmetros → resíduo zero).
 
-> **Lição importante:** isso não significa que "área nunca importa" — significa que, com apenas
-> 3 exemplos, não há dados suficientes para separar de forma confiável o efeito da área do
-> efeito dos quartos (nesse conjunto minúsculo, quartos por si só já explica todo o preço). Em
-> problemas reais, sempre use bem mais exemplos do que parâmetros.
+> **Lição:** isso não quer dizer que "área nunca importa" — com só 3 exemplos não há dados
+> suficientes para separar o efeito de área e quartos (aqui, quartos sozinho já explica tudo).
+> Em problemas reais, use sempre muito mais exemplos do que parâmetros.
 
 ### 3.5 Código (estilo usado em aula)
 
@@ -445,6 +573,22 @@ d) $\beta_1=0.5>0$: mais horas de estudo aumentam a nota (esperado). $\beta_2=-1
    reduz a nota prevista em 1 ponto (esperado).
 e) Porque há **duas** variáveis explicativas (horas e faltas) influenciando a nota ao mesmo
    tempo — Regressão Simples só suporta uma variável.
+
+**Código:**
+```python
+import numpy as np
+
+X_features = np.array([[10, 1], [6, 3], [8, 0]])   # horas, faltas
+y = np.array([7, 3, 7])
+
+X = np.c_[np.ones(X_features.shape[0]), X_features]   # adiciona coluna de 1's (bias)
+beta = np.linalg.inv(X.T @ X) @ X.T @ y
+
+print("beta =", beta)   # [beta0, beta1, beta2]
+
+novo_aluno = np.array([1, 12, 2])   # bias, horas=12, faltas=2
+print("Nota prevista:", novo_aluno @ beta)
+```
 </details>
 
 #### Exercício 2 — Aluguel a partir de área e distância ao centro
@@ -473,6 +617,22 @@ Resolvendo o sistema: $\beta_0=200$, $\beta_1=15$, $\beta_2=-10$.
 c) $200 + 15\times50 - 10\times4 = 200+750-40=\mathbf{R\$\,910}$.
 d) Sim — $\beta_2=-10<0$ significa que, quanto mais longe do centro, menor o aluguel (mantendo a
    área constante), o que é o esperado no mercado imobiliário.
+
+**Código:**
+```python
+import numpy as np
+
+X_features = np.array([[40, 5], [60, 2], [30, 10]])   # área, distância
+y = np.array([750, 1080, 550])
+
+X = np.c_[np.ones(X_features.shape[0]), X_features]
+beta = np.linalg.inv(X.T @ X) @ X.T @ y
+
+print("beta =", beta)   # [beta0, beta1, beta2]
+
+novo_imovel = np.array([1, 50, 4])   # bias, área=50, distância=4
+print("Aluguel previsto:", novo_imovel @ beta)
+```
 </details>
 
 ---
@@ -481,10 +641,9 @@ d) Sim — $\beta_2=-10<0$ significa que, quanto mais longe do centro, menor o a
 
 ### 4.1 Quando usar
 
-Use quando a variável que você quer prever é **categórica/binária** (0 ou 1, sim ou não,
-sobreviveu ou não, comprou ou não) — e você quer, além de classificar, saber a **probabilidade**
-de pertencer a cada classe. **Nunca use regressão linear comum para isso**: uma reta pode prever
-valores menores que 0 ou maiores que 1, o que não faz sentido como probabilidade.
+Use quando a variável a prever é **categórica/binária** (0/1, sim/não, sobreviveu/não) e você quer
+também saber a **probabilidade** de cada classe. **Nunca use regressão linear aqui**: uma reta
+pode prever valores fora de [0, 1], o que não faz sentido como probabilidade.
 
 ### 4.2 A função sigmoide
 
@@ -577,6 +736,23 @@ probabilidade $\sigma(z)$ (use a tabela da seção 4.2) e a classificação fina
 
 (Valores de $\sigma$ para z não tabelados podem ser calculados com $\sigma(z)=1/(1+e^{-z})$,
 $e\approx2{,}71828$.)
+
+**Código:**
+```python
+import numpy as np
+
+def sigmoid(z):
+    return 1 / (1 + np.exp(-z))
+
+beta0, beta1, beta2 = -3, 0.8, -0.5
+clientes = {"P": (5, 1), "Q": (3, 0), "R": (4, 3)}   # (renda, dívidas)
+
+for nome, (renda, dividas) in clientes.items():
+    z = beta0 + beta1 * renda + beta2 * dividas
+    prob = sigmoid(z)
+    classe = 1 if prob >= 0.5 else 0
+    print(f"{nome}: z={z:.2f}, prob={prob:.4f}, classe={classe}")
+```
 </details>
 
 #### Exercício 2 — Comparando o custo (log loss) de dois modelos
@@ -598,6 +774,22 @@ b) $J = -\frac{1}{3}\big[\ln(0.95) + \ln(0.9) + \ln(0.9)\big] = -\frac{1}{3}(-0.
 
 c) O **segundo modelo** é melhor: seu log loss (≈0,087) é bem menor que o do primeiro (≈0,364).
    Quanto menor o custo, mais as probabilidades previstas se aproximam dos valores reais.
+
+**Código:**
+```python
+import numpy as np
+
+def log_loss(y, p):
+    eps = 1e-8
+    return -np.mean(y * np.log(p + eps) + (1 - y) * np.log(1 - p + eps))
+
+y = np.array([1, 0, 1])
+p1 = np.array([0.8, 0.3, 0.6])
+p2 = np.array([0.95, 0.1, 0.9])
+
+print("Custo modelo 1:", log_loss(y, p1))
+print("Custo modelo 2:", log_loss(y, p2))
+```
 </details>
 
 ---
@@ -683,6 +875,19 @@ recall, especificidade e F1 (você pode conferir com os valores da Seção 5.4).
 
 Acurácia = 0,90 · Precisão = 0,889 · Recall = 0,889 · Especificidade = 0,909 · F1 = 0,889
 (mesmos cálculos do exemplo resolvido acima).
+
+**Código:**
+```python
+VP, VN, FP, FN = 40, 50, 5, 5
+
+acc = (VP + VN) / (VP + VN + FP + FN)
+prec = VP / (VP + FP)
+rec = VP / (VP + FN)
+spec = VN / (VN + FP)
+f1 = 2 * (prec * rec) / (prec + rec)
+
+print(f"Acurácia={acc:.4f}  Precisão={prec:.4f}  Recall={rec:.4f}  Especificidade={spec:.4f}  F1={f1:.4f}")
+```
 </details>
 
 #### Exercício 2 — A armadilha da acurácia (dados desbalanceados)
@@ -709,6 +914,19 @@ b) **Não.** A acurácia de 94% parece ótima só porque a maioria das pessoas �
 c) **Recall** é a métrica mais importante aqui: em doenças, o custo de um falso negativo (deixar
    um doente sem diagnóstico) é muito mais grave que o de um falso positivo (mandar uma pessoa
    saudável fazer um exame extra de confirmação).
+
+**Código:**
+```python
+VP, VN, FP, FN = 8, 180, 2, 10
+
+acc = (VP + VN) / (VP + VN + FP + FN)
+prec = VP / (VP + FP)
+rec = VP / (VP + FN)
+spec = VN / (VN + FP)
+f1 = 2 * (prec * rec) / (prec + rec)
+
+print(f"Acurácia={acc:.4f}  Precisão={prec:.4f}  Recall={rec:.4f}  Especificidade={spec:.4f}  F1={f1:.4f}")
+```
 </details>
 
 ---
@@ -717,17 +935,15 @@ c) **Recall** é a métrica mais importante aqui: em doenças, o custo de um fal
 
 ### 6.1 Quando usar
 
-KNN serve tanto para **classificação** (prever uma classe) quanto para **regressão** (prever um
-número), e pode ser usado quando:
-- Você não quer (ou não precisa) assumir uma fórmula/fronteira específica entre as variáveis
-  (é **não-paramétrico**) — útil se a relação parece complexa/não-linear.
-- A ideia natural do problema é "olhar para os casos mais parecidos" ("diga-me com quem andas e
-  te direi quem és").
-- O dataset não é gigante (KNN fica lento em bases muito grandes, pois recalcula distâncias
-  para **todos** os pontos a cada nova predição).
+KNN serve tanto para **classificação** quanto para **regressão**, e é uma boa escolha quando:
+- Você não quer assumir uma fórmula/fronteira fixa entre as variáveis (é **não-paramétrico**) —
+  útil para relações complexas/não-lineares.
+- A lógica natural do problema é "olhar para os casos mais parecidos".
+- O dataset não é gigante — KNN recalcula a distância a **todos** os pontos a cada predição, o
+  que fica lento em bases grandes.
 
-KNN é chamado de **"aprendizado preguiçoso" (lazy learning)**: não constrói um modelo/fórmula na
-fase de treino — só guarda os dados. Todo o "trabalho" acontece no momento da predição.
+É chamado de **"aprendizado preguiçoso" (lazy learning)**: não constrói modelo no treino, só
+guarda os dados — todo o trabalho acontece na hora de prever.
 
 ### 6.2 O algoritmo passo a passo
 
@@ -852,6 +1068,29 @@ d) Porque o cálculo de distância trata todas as variáveis igualmente em valor
    variável tiver uma escala muito maior que a outra (ex.: uma em milhares e outra entre 0 e 1),
    ela dominaria a distância mesmo sem ser mais importante. Normalizar coloca todas as variáveis
    na mesma escala antes de medir a distância.
+
+**Código:**
+```python
+import numpy as np
+from collections import Counter
+
+X_train = np.array([[2, 3], [3, 2], [8, 8], [7, 9], [1, 1], [9, 7]])
+y_train = np.array([0, 0, 1, 1, 0, 1])
+
+def dist(p, q):
+    return np.sqrt(np.sum((p - q) ** 2))
+
+novo_ponto = np.array([4, 4])
+distancias = sorted(
+    [(dist(p, novo_ponto), y_train[i]) for i, p in enumerate(X_train)],
+    key=lambda t: t[0]
+)
+
+for k in [3, 5]:
+    vizinhos = [classe for _, classe in distancias[:k]]
+    classificacao = Counter(vizinhos).most_common(1)[0][0]
+    print(f"K={k}: vizinhos={vizinhos} -> classificação={classificacao}")
+```
 </details>
 
 #### Exercício 2 — KNN regressão
@@ -877,6 +1116,22 @@ d) Resposta aberta, mas a esperada: como a relação entre área e preço parece
    é mais sensível a como os pontos vizinhos estão distribuídos (repare que a previsão do KNN
    "pulou" de 210 para 270 entre imóveis de 58 e 72 m², um comportamento mais irregular que uma
    reta contínua).
+
+**Código:**
+```python
+import numpy as np
+
+areas = np.array([50, 55, 60, 85, 90])
+precos = np.array([200, 210, 220, 380, 400])
+
+novo = 72
+distancias = sorted(zip(np.abs(areas - novo), precos), key=lambda t: t[0])
+
+k = 3
+vizinhos = [preco for _, preco in distancias[:k]]
+print("Vizinhos:", vizinhos)
+print("Preço previsto:", np.mean(vizinhos))
+```
 </details>
 
 ---
